@@ -1,4 +1,4 @@
-module gopkg.in/go-oauth2/redis.v3
+module github.com/helloshiki/redis
 
 go 1.13
 

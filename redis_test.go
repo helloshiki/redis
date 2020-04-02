@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	addr = "localhost:6379"
+	addr = "5.5.5.2:6379"
 	db   = 15
 )
 

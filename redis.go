@@ -8,7 +8,6 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	"gopkg.in/oauth2.v3"
 	"gopkg.in/oauth2.v3/models"
-	"gopkg.in/oauth2.v3/utils/uuid"
 )
 
 var (
@@ -125,7 +124,7 @@ func (s *TokenStore) removeToken(tokenString string, isRefresh bool) error {
 	if err := iresult.Err(); err != nil && err != redis.Nil {
 		return err
 	} else if iresult.Val() == 0 {
-		return s.remove(basicID)
+		//return s.remove(basicID)
 	}
 
 	return nil
@@ -180,24 +179,46 @@ func (s *TokenStore) Create(info oauth2.TokenInfo) error {
 		return err
 	}
 
-	pipe := s.cli.TxPipeline()
 	if code := info.GetCode(); code != "" {
-		pipe.Set(s.wrapperKey(code), jv, info.GetCodeExpiresIn())
-	} else {
-		basicID := uuid.Must(uuid.NewRandom()).String()
-		aexp := info.GetAccessExpiresIn()
-		rexp := aexp
+		pipe := s.cli.TxPipeline()
+		if _, err := pipe.Exec(); err != nil {
+			return err
+		}
+		return nil
+	}
 
-		if refresh := info.GetRefresh(); refresh != "" {
-			rexp = info.GetRefreshCreateAt().Add(info.GetRefreshExpiresIn()).Sub(ct)
-			if aexp.Seconds() > rexp.Seconds() {
-				aexp = rexp
-			}
-			pipe.Set(s.wrapperKey(refresh), basicID, rexp)
+	//basicID := uuid.Must(uuid.NewRandom()).String()
+	basicID := fmt.Sprintf("%s:%s", info.GetUserID(), info.GetClientID())
+
+	tokenInfo, err := s.getToken(basicID)
+	if err != nil {
+		return err
+	}
+
+	pipe := s.cli.TxPipeline()
+
+	aexp := info.GetAccessExpiresIn()
+	rexp := aexp
+
+	if refresh := info.GetRefresh(); refresh != "" {
+		rexp = info.GetRefreshCreateAt().Add(info.GetRefreshExpiresIn()).Sub(ct)
+		if aexp.Seconds() > rexp.Seconds() {
+			aexp = rexp
 		}
 
-		pipe.Set(s.wrapperKey(info.GetAccess()), basicID, aexp)
-		pipe.Set(s.wrapperKey(basicID), jv, rexp)
+		pipe.Set(s.wrapperKey(refresh), basicID, rexp)
+	}
+
+	pipe.Set(s.wrapperKey(info.GetAccess()), basicID, aexp)
+	pipe.Set(s.wrapperKey(basicID), jv, rexp)
+
+	if tokenInfo != nil {
+		if access := tokenInfo.GetAccess(); access != "" {
+			pipe.Del(s.wrapperKey(access))
+		}
+		if refresh := tokenInfo.GetRefresh(); refresh != "" {
+			pipe.Del(s.wrapperKey(refresh))
+		}
 	}
 
 	if _, err := pipe.Exec(); err != nil {
